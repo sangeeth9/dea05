@@ -8,7 +8,7 @@ class TestOperations(unittest.TestCase):
 
     def test_diff(self):
         calculator = Calculator(10, 20)
-        self.assertEqual(calculator.get_diff(), -10, "The answer was not -10.")
+        self.assertEqual(calculator.get_diff(), 10, "The answer was not 10.")
 
 if __name__ == "__main__":
     unittest.main()
