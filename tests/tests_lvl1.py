@@ -1,5 +1,5 @@
 import unittest
-from calc import Calculator
+from demo.calc import Calculator
 
 class TestOperations(unittest.TestCase):
     def test_sum(self):
