@@ -71,3 +71,6 @@ APIs – data retrieval from public APIs
 Unit Testing – Python testing best practices
 SQL & Databases – storing and querying data
 Python – scripting, data manipulation, and automation
+
+Final PowerBI dashboard with pipeline metrics and cleaned data:
+<img width="807" height="453" alt="image" src="https://github.com/user-attachments/assets/95218443-2be8-4482-af62-630ff68a03ca" />
