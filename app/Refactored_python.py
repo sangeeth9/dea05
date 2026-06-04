@@ -1,130 +1,153 @@
 import pandas as pd
 from sqlalchemy import create_engine
-#import pyodbc
+import time
 
-# Function to output dataframe that can be manipulated via a filepath
+
 def fileLoader(filepath):
     data = pd.read_csv(filepath)
-    return data 
+    return data
 
-# Duplicate Dropping Function
+
 def duplicateCleaner(df):
     return df.drop_duplicates().reset_index(drop=True)
 
-# NA handler - future scope can handle errors more elegantly. 
+
 def naCleaner(df):
     return df.dropna().reset_index(drop=True)
 
-# Turning date columns into datetime
+
 def dateCleaner(col, df):
-    #date_errors = pd.DataFrame(columns=df.columns)  # Store rows with date errors
+    df[col] = df[col].astype(str).str.replace('"', "", regex=True)
+    df[col] = pd.to_datetime(df[col], dayfirst=True, errors='coerce')
 
-    # Strip any quotes from dates
-    df[col] = df[col].str.replace('"', "", regex=True)
-
-    try:
-        df[col] = pd.to_datetime(df[col], dayfirst=True, errors='coerce')
-
-    except Exception as e:
-        print(f"Error while converting column {col} to datetime: {e}")
-
-    # Identify rows with invalid dates
-    error_flag = pd.to_datetime(df[col], dayfirst=True, errors='coerce').isna()
-        
-    # Move invalid rows to date_errors - Future feature
-    #date_errors = df[error_flag]
-        
-    # Keep only valid rows in df
+    error_flag = df[col].isna()
     df = df[~error_flag].copy()
-
-    # Reset index for the cleaned DataFrame
     df.reset_index(drop=True, inplace=True)
 
     return df
 
-def enrich_dateDuration(colA, colB, df):
-    """
-    Takes the two datetime input column names and the dataframe to create a new column date_delta which is the difference, in days, between colA and colB.
-    
-    Note:
-    colB>colA
-    """
-    df['date_delta'] = (df[colB]-df[colA]).dt.days
 
-    #Conditional Filtering to be able to gauge eroneous loans.
+def enrich_dateDuration(colA, colB, df):
+    df['date_delta'] = (df[colB] - df[colA]).dt.days
+
     df.loc[df['date_delta'] < 0, 'valid_loan_flag'] = False
     df.loc[df['date_delta'] >= 0, 'valid_loan_flag'] = True
 
     return df
 
+
 def writeToSQL(df, table_name, server, database):
+    connection_string = (
+        f'mssql+pyodbc://@{server}/{database}'
+        f'?trusted_connection=yes&driver=ODBC+Driver+17+for+SQL+Server'
+    )
 
-    # Create the connection string with Windows Authentication
-    connection_string = f'mssql+pyodbc://@{server}/{database}?trusted_connection=yes&driver=ODBC+Driver+17+for+SQL+Server'
-
-    # Create the SQLAlchemy engine
     engine = create_engine(connection_string)
 
     try:
-        # Write the DataFrame to SQL Server
         df.to_sql(table_name, con=engine, if_exists='replace', index=False)
-
-        print(f"Table{table_name} written to SQL")
+        print(f"Table {table_name} written to SQL")
     except Exception as e:
-        print(f"Error writing to the SQL Server: {e}")
+        print(f"Error writing {table_name} to SQL Server: {e}")
+
 
 if __name__ == '__main__':
+    pipeline_start_time = time.time()
+
     print('**************** Starting Clean ****************')
 
-    # Instantiation
-    #dropCount= 0
-    #customer_drop_count = 0
-    filepath_input = 'data/03_Library Systembook.csv'
+    server = 'localhost'
+    database = 'DE5_Module5'
+
+    filepath_books = 'data/03_Library Systembook.csv'
+    filepath_customers = 'data/03_Library SystemCustomers.csv'
+
     date_columns = ['Book checkout', 'Book Returned']
-    date_errors = None
 
-    data = fileLoader(filepath=filepath_input)
+    # Books data
+    data = fileLoader(filepath_books)
+    original_book_records = len(data)
 
-    # Drop duplicates & NAs
     data = duplicateCleaner(data)
     data = naCleaner(data)
 
-    # Converting date columns into datetime
     for col in date_columns:
         data = dateCleaner(col, data)
-    
-    # Enriching the dataset
-    data = enrich_dateDuration(df=data, colA='Book Returned', colB='Book checkout')
 
-    #data.to_csv('cleaned_file.csv')
-    print(data)
+    data = enrich_dateDuration(
+        df=data,
+        colA='Book checkout',
+        colB='Book Returned'
+    )
 
-    #Cleaning the customer file
-    filepath_input_2 = 'data/03_Library SystemCustomers.csv'
+    cleaned_book_records = len(data)
+    dropped_book_records = original_book_records - cleaned_book_records
 
-    data2 = fileLoader(filepath=filepath_input_2)
+    # Customer data
+    data2 = fileLoader(filepath_customers)
+    original_customer_records = len(data2)
 
-    # Drop duplicates & NAs
     data2 = duplicateCleaner(data2)
     data2 = naCleaner(data2)
 
-    print(data2)
+    cleaned_customer_records = len(data2)
+    dropped_customer_records = original_customer_records - cleaned_customer_records
+
+    # Pipeline execution time
+    pipeline_end_time = time.time()
+    pipeline_execution_time_seconds = round(
+        pipeline_end_time - pipeline_start_time,
+        2
+    )
+
+    # Metrics table for Power BI dashboard
+    metrics = pd.DataFrame({
+        'metric_name': [
+            'book_records_processed',
+            'book_records_dropped',
+            'customer_records_processed',
+            'customer_records_dropped',
+            'total_records_processed',
+            'total_records_dropped',
+            'pipeline_execution_time_seconds'
+        ],
+        'metric_value': [
+            cleaned_book_records,
+            dropped_book_records,
+            cleaned_customer_records,
+            dropped_customer_records,
+            cleaned_book_records + cleaned_customer_records,
+            dropped_book_records + dropped_customer_records,
+            pipeline_execution_time_seconds
+        ]
+    })
+
+    print('**************** RECORD COUNTS ****************')
+    print(metrics)
+
     print('**************** DATA CLEANED ****************')
 
-"""
     print('Writing to SQL Server...')
 
     writeToSQL(
-        data, 
-        table_name='loans_bronze', 
-        server = 'localhost', 
-        database = 'DE5_Module5' 
+        data,
+        table_name='loans_bronze',
+        server=server,
+        database=database
     )
 
     writeToSQL(
-        data2, 
-        table_name='customer_bronze', 
-        server = 'localhost', 
-        database = 'DE5_Module5'
+        data2,
+        table_name='customer_bronze',
+        server=server,
+        database=database
     )
-    print('**************** End ****************') """
+
+    writeToSQL(
+        metrics,
+        table_name='pipeline_metrics',
+        server=server,
+        database=database
+    )
+
+    print('**************** End ****************')
